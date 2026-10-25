@@ -123,7 +123,11 @@ def seed(conn, password=None, rng_seed=13):
 
     Does nothing (returns []) if stores already exist.
     """
+    # Lock before checking so concurrent Gunicorn workers cannot both seed an
+    # initially empty database.
+    conn.execute("BEGIN IMMEDIATE")
     if conn.execute("SELECT COUNT(*) FROM store").fetchone()[0]:
+        conn.commit()
         return []
     random.Random(rng_seed)  # data is fixed; kept for future jitter
     now = now_utc()

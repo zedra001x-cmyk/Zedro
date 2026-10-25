@@ -1,4 +1,5 @@
 import io
+import contextlib
 import os
 import re
 import shutil
@@ -22,7 +23,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.dbfile = os.path.join(self.tmp, "t.db")
-        self.app = create_app(db_path=self.dbfile, upload_dir=os.path.join(self.tmp, "up"))
+        self.app = create_app(db_path=self.dbfile, upload_dir=os.path.join(self.tmp, "up"), seed_demo=False)
         self.app.config["TESTING"] = True
         c = sqlite3.connect(self.dbfile)
         dbm.seed(c, password=PW)
@@ -154,6 +155,34 @@ class FreshnessTests(Base):
         self.assertEqual(f(80)["level"], "stale")
         self.assertIn("Needs confirmation", f(80)["badge"])
         self.assertEqual(f(1, "sold")["level"], "sold")
+
+
+class StartupTests(unittest.TestCase):
+    def test_factory_seeds_empty_database_once(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp, "startup.db")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                create_app(db_path=path, upload_dir=os.path.join(tmp, "uploads"))
+            first_output = output.getvalue()
+            self.assertIn("seller1@demo.zedro", first_output)
+
+            output.seek(0)
+            output.truncate(0)
+            with contextlib.redirect_stdout(output):
+                create_app(db_path=path, upload_dir=os.path.join(tmp, "uploads"))
+            self.assertEqual(output.getvalue(), "")
+
+            conn = sqlite3.connect(path)
+            try:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM store").fetchone()[0], 5)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM user").fetchone()[0], 6)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM listing").fetchone()[0], len(dbm.LISTINGS))
+            finally:
+                conn.close()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class SellerTests(Base):

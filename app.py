@@ -206,7 +206,7 @@ def remove_image(name):
 
 
 # ---------- app ----------
-def create_app(db_path=None, upload_dir=None, demo=True):
+def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True):
     app = Flask(__name__, instance_relative_config=True)
     os.makedirs(app.instance_path, exist_ok=True)
     app.config.update(
@@ -219,6 +219,13 @@ def create_app(db_path=None, upload_dir=None, demo=True):
     app.secret_key = load_secret(app)
     conn = sqlite3.connect(app.config["DATABASE"])
     dbm.init_db(conn)
+    if seed_demo:
+        created = dbm.seed(conn)
+        if created:
+            print("\nDemo logins (shown once; run `python db.py --reset` to regenerate):")
+            for email, role, pw in created:
+                print(f"  {role:7} {email}  {pw}")
+            print()
     conn.close()
 
     app.jinja_env.globals.update(
@@ -496,12 +503,4 @@ def create_app(db_path=None, upload_dir=None, demo=True):
 
 if __name__ == "__main__":
     app = create_app()
-    c = sqlite3.connect(app.config["DATABASE"])
-    created = dbm.seed(c)
-    c.close()
-    if created:
-        print("\nDemo logins (shown once; run `python db.py --reset` to regenerate):")
-        for email, role, pw in created:
-            print(f"  {role:7} {email}  {pw}")
-        print()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
