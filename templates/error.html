@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="empty"><h1>{{ code }}</h1><p>{% if code == 404 %}That page isn't here.{% elif code == 403 %}You don't have access to this page.{% else %}That request couldn't be completed. Go back and try again.{% endif %}</p><a class="btn" href="{{ url_for('home') }}">Back to search</a></div>
+{% endblock %}

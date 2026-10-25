@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card %}
+{% block title %}{{ q or 'All phones' }} · ZEDRO{% endblock %}
+{% block content %}
+<form class="filters" method="get" action="{{ url_for('search') }}">
+  <input type="hidden" name="q" value="{{ q }}">
+  <details {% if args.brand or args.condition or args.storage or args.min_price or args.max_price or args.availability %}open{% endif %}>
+    <summary>Filters</summary>
+    <div class="grid">
+      <label>Brand
+        <select name="brand"><option value="">Any</option>
+          {% for b in brands %}<option {% if b == args.brand %}selected{% endif %}>{{ b }}</option>{% endfor %}
+        </select></label>
+      <label>Condition
+        <select name="condition"><option value="">Any</option>
+          {% for c in CONDITIONS %}<option {% if c == args.condition %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </select></label>
+      <label>Storage
+        <select name="storage"><option value="">Any</option>
+          {% for s in storages %}<option {% if s == args.storage %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select></label>
+      <label>Availability
+        <select name="availability">
+          <option value="">Any listed</option>
+          <option value="24" {% if args.availability == '24' %}selected{% endif %}>Updated in last 24 hours</option>
+          <option value="72" {% if args.availability == '72' %}selected{% endif %}>Updated in last 3 days</option>
+        </select></label>
+      <label>Min price (₦)<input name="min_price" inputmode="numeric" value="{{ args.min_price }}" placeholder="0"></label>
+      <label>Max price (₦)<input name="max_price" inputmode="numeric" value="{{ args.max_price }}" placeholder="Any"></label>
+    </div>
+  </details>
+  <div class="sortrow">
+    <label>Sort
+      <select name="sort">
+        <option value="recent" {% if args.sort == 'recent' %}selected{% endif %}>Recently updated</option>
+        <option value="price" {% if args.sort == 'price' %}selected{% endif %}>Lowest price</option>
+      </select></label>
+    <button class="btn primary">Apply</button>
+    <a class="btn" href="{{ url_for('search', q=q) }}">Reset</a>
+  </div>
+</form>
+<p class="count">{{ results|length }} listing{{ '' if results|length == 1 else 's' }}{% if q %} for “{{ q }}”{% endif %}</p>
+{% for l in results %}{{ card(l) }}
+{% else %}
+<div class="empty"><p>No phones match. Try fewer filters or a shorter search.</p><a class="btn" href="{{ url_for('search') }}">See all listings</a></div>
+{% endfor %}
+{% endblock %}

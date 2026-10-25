@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block searchbar %}{% endblock %}
+{% block title %}Log in · ZEDRO{% endblock %}
+{% block content %}
+<h1>Seller login</h1>
+<form class="stack" method="post" autocomplete="on">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Email<input type="email" name="email" required autocomplete="username"></label>
+  <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
+  <button class="btn primary big">Log in</button>
+</form>
+{% endblock %}

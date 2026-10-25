@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block searchbar %}{% endblock %}
+{% block title %}Admin · ZEDRO{% endblock %}
+{% block content %}
+<h1>Admin</h1>
+<h2 class="sub">Stores</h2>
+{% for s in stores %}
+<div class="row"><div class="rowtop"><div><h3><a href="{{ url_for('store', id=s.id) }}">{{ s.name }}</a></h3><p class="spec">{{ s.n_available }} available of {{ s.n_listings }} listings</p></div></div></div>
+{% endfor %}
+<h2 class="sub">Recent listings</h2>
+{% for l in recent %}
+{% set f = freshness(l) %}
+<div class="row {{ f.level }}">
+  <div class="rowtop"><div><h3><a href="{{ url_for('phone', id=l.id) }}">{{ l|phone_name }}</a></h3>
+    <p class="spec">{{ l.store_name }} · {{ l.condition }}</p></div><p class="price">{{ l.price|naira }}</p></div>
+  <p class="fresh"><span class="badge {{ f.level }}">{{ f.badge }}</span><span class="note">{{ f.note }}</span></p>
+  <p class="spec">{{ 'Visible to buyers' if l.approved else 'Disabled' }}</p>
+  <div class="actions">
+    <form method="post" action="{{ url_for('admin_approve', id=l.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" {% if l.approved %}disabled{% endif %}>Approve</button></form>
+    <form method="post" action="{{ url_for('admin_reject', id=l.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger" {% if not l.approved %}disabled{% endif %}>Disable</button></form>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

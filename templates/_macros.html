@@ -1,0 +1,22 @@
+{% macro thumb(l) -%}
+{% if l.image %}<img src="{{ url_for('uploaded', name=l.image) }}" alt="" loading="lazy">{% else %}<span class="ph">{{ l.brand }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro card(l) %}
+{% set f = freshness(l) %}
+<article class="card {{ f.level }}">
+  <a class="thumb" href="{{ url_for('phone', id=l.id) }}" tabindex="-1" aria-hidden="true">{{ thumb(l) }}</a>
+  <div class="body">
+    <h3><a href="{{ url_for('phone', id=l.id) }}">{{ l|phone_name }}</a></h3>
+    <p class="spec">{% if l.storage %}{{ l.storage }} · {% endif %}{{ l.condition }}</p>
+    {% if l.battery_health %}<p class="spec">Battery {{ l.battery_health }}%</p>{% endif %}
+    <p class="price">{{ l.price|naira }}</p>
+    <p class="store"><a href="{{ url_for('store', id=l.store_id) }}">{{ l.store_name }}</a></p>
+    <p class="fresh"><span class="badge {{ f.level }}">{{ f.badge }}</span><span class="note">{{ f.note }}</span></p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('phone', id=l.id) }}">View phone</a>
+    <a class="btn wa" href="{{ wa_link(l.whatsapp, wa_msg(l)) }}" target="_blank" rel="noopener">WhatsApp</a>
+  </div>
+</article>
+{% endmacro %}

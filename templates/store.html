@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card %}
+{% block title %}{{ s.name }} · ZEDRO{% endblock %}
+{% block content %}
+<section class="storehead">
+  <h1>{{ s.name }}</h1>
+  <p class="spec">Ughelli, Delta State</p>
+  {% if s.description %}<p>{{ s.description }}</p>{% endif %}
+  <dl class="facts">
+    <dt>Address</dt><dd>{{ s.address or 'Not provided' }}</dd>
+    <dt>Phone</dt><dd>{{ s.phone or 'Not provided' }}</dd>
+    <dt>Phones available</dt><dd>{{ items|length }}</dd>
+    <dt>Last inventory update</dt><dd>{{ last|ago if last else 'No listings yet' }}</dd>
+  </dl>
+  <div class="cta">
+    <a class="btn wa" href="{{ wa_link(s.whatsapp) }}" target="_blank" rel="noopener">WhatsApp</a>
+    <a class="btn" href="tel:{{ s.phone }}">Call</a>
+    <a class="btn" href="{{ directions_link(s) }}" target="_blank" rel="noopener">Directions</a>
+  </div>
+</section>
+<h2 class="sub">Current inventory</h2>
+{% for l in items %}{{ card(l) }}{% else %}<div class="empty"><p>This store has no phones listed right now.</p></div>{% endfor %}
+{% endblock %}

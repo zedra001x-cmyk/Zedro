@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block searchbar %}{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>See it before you go.</h1>
+  <p class="lead">Find phones currently listed by physical stores around Ughelli.</p>
+  <form class="bigSearch" action="{{ url_for('search') }}" method="get" role="search">
+    <input type="search" name="q" placeholder="Search iPhone, Samsung, Tecno..." aria-label="Search phones" maxlength="80" autofocus>
+    <button class="btn primary">Search phones</button>
+  </form>
+  <h2 class="sub">Popular searches</h2>
+  <ul class="chips">
+    {% for p in popular %}<li><a href="{{ url_for('search', q=p) }}">{{ p }}</a></li>{% endfor %}
+  </ul>
+</section>
+<section class="how">
+  <p>Search local stores. Compare what's available. Contact the seller before you go.</p>
+  <p class="fine">Each listing shows when the store last updated it, so you know how much to trust it.</p>
+</section>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block searchbar %}{% endblock %}
+{% block title %}{{ 'Edit' if l else 'Add' }} phone · ZEDRO{% endblock %}
+{% macro val(name) %}{{ form.get(name) if form and form.get(name) is not none else (l[name] if l and l[name] is not none else '') }}{% endmacro %}
+{% block content %}
+<h1>{{ 'Edit phone' if l else 'Add phone' }}</h1>
+<form class="stack" method="post" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Brand *<input name="brand" list="brands" required maxlength="40" value="{{ val('brand') }}"></label>
+  <datalist id="brands">{% for b in BRANDS %}<option value="{{ b }}">{% endfor %}</datalist>
+  <label>Model *<input name="model" required maxlength="80" placeholder="iPhone 13" value="{{ val('model') }}"></label>
+  <label>Price (₦) *<input name="price" required inputmode="numeric" placeholder="480000" value="{{ val('price') }}"></label>
+  <label>Condition *
+    <select name="condition" required>
+      <option value="">Choose</option>
+      {% for c in CONDITIONS %}<option {% if val('condition') == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select></label>
+  <label>Storage<input name="storage" maxlength="20" placeholder="128GB" value="{{ val('storage') }}"></label>
+  <label>Battery health (%)<input name="battery_health" inputmode="numeric" maxlength="3" value="{{ val('battery_health') }}"></label>
+  <label>Repair history<input name="repair_history" maxlength="300" placeholder="e.g. Screen replaced" value="{{ val('repair_history') }}"></label>
+  <label>Description<textarea name="description" rows="3" maxlength="1000">{{ val('description') }}</textarea></label>
+  <label>Photo (JPG, PNG or WebP, up to 3 MB)<input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
+  {% if l and l.image %}<p class="fine">A photo is already saved. Choose a new one to replace it.</p>{% endif %}
+  <button class="btn primary big">{{ 'Save changes' if l else 'Publish' }}</button>
+  <a class="btn big" href="{{ url_for('dashboard') }}">Cancel</a>
+</form>
+{% endblock %}

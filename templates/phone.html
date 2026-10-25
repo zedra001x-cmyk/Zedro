@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_macros.html" import thumb %}
+{% block title %}{{ l|phone_name }} · {{ l.store_name }} · ZEDRO{% endblock %}
+{% block content %}
+{% set f = freshness(l) %}
+<article class="detail">
+  <div class="bigimg">{{ thumb(l) }}</div>
+  <p class="spec">{{ l.brand }}</p>
+  <h1>{{ l|phone_name }}</h1>
+  <p class="price big">{{ l.price|naira }}</p>
+  <p class="fresh {{ f.level }}"><span class="badge {{ f.level }}">{{ f.badge }}</span><span class="note">{{ f.note }}</span></p>
+  {% if l.status == 'sold' %}<p class="flash">This phone was marked sold by the store.</p>{% endif %}
+  <dl class="facts">
+    <dt>Condition</dt><dd>{{ l.condition }}</dd>
+    {% if l.storage %}<dt>Storage</dt><dd>{{ l.storage }}</dd>{% endif %}
+    <dt>Battery health</dt><dd>{% if l.battery_health %}{{ l.battery_health }}%{% else %}Not stated{% endif %}</dd>
+    <dt>Repair history</dt><dd>{{ l.repair_history or 'Not stated by seller' }}</dd>
+    <dt>Store</dt><dd><a href="{{ url_for('store', id=l.store_id) }}">{{ l.store_name }}</a></dd>
+    <dt>Last updated</dt><dd>{{ l.updated_at|ago }}</dd>
+  </dl>
+  {% if l.description %}<p class="desc">{{ l.description }}</p>{% endif %}
+  <p class="fine">This information comes from the store's own updates, not live stock. Confirm before you go.</p>
+  {% if l.status == 'available' %}
+  <div class="cta">
+    <a class="btn wa big" href="{{ wa_link(l.whatsapp, wa_msg(l)) }}" target="_blank" rel="noopener">WhatsApp store</a>
+    <a class="btn big" href="tel:{{ l.store_phone }}">Call store</a>
+    <a class="btn big" href="{{ directions_link(store) }}" target="_blank" rel="noopener">Get directions</a>
+  </div>
+  {% endif %}
+</article>
+{% endblock %}
