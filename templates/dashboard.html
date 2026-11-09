@@ -3,6 +3,7 @@
 {% block title %}Inventory · ZEDRO{% endblock %}
 {% block content %}
 <h1>{{ s.name }}</h1>
+{% if raycom_pilot %}<p class="fine">Keep this list accurate. Update a phone when its price or condition changes, mark it sold immediately, and use <b>Still available</b> to refresh its 72-hour freshness window.</p>{% endif %}
 <ul class="stats">
   <li><b>{{ counts.total }}</b>Total listings</li>
   <li><b>{{ counts.available }}</b>Available</li>
@@ -30,5 +31,11 @@
     <form method="post" action="{{ url_for('delete_listing', id=l.id) }}" data-confirm="Delete this listing?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger">Delete</button></form>
   </div>
 </article>
-{% else %}<div class="empty"><p>No listings yet. Add your first phone.</p></div>{% endfor %}
+{% else %}
+<div class="empty">
+  <p><strong>No inventory has been published yet.</strong></p>
+  <p class="fine">Start with products Raycom actually has in the shop. Do not add stock just for the demo.</p>
+  <a class="btn primary" href="{{ url_for('add_listing') }}">Add first phone</a>
+</div>
+{% endfor %}
 {% endblock %}

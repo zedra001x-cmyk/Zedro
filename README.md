@@ -29,3 +29,18 @@ python -m unittest discover -s tests -v
 - Freshness comes only from each listing's `updated_at`: under 24h 🟢 Available, 24-72h 🟡 Confirm availability, over 72h ⚠️ Needs confirmation. It is not live stock.
 - Secrets: the session key comes from `ZEDRO_SECRET`, or is generated into `instance/secret_key`.
 - Out of scope on purpose: payments, delivery, buyer accounts, reviews, chat, seller sign-up.
+
+
+## Raycom pilot
+
+Run the first real-store pilot with `ZEDRO_MODE=raycom`. This seeds only the Raycom store and staff/admin accounts; it intentionally creates **no fake inventory**.
+
+Set `ZEDRO_RAYCOM_PASSWORD` before first startup if you want a known password. Otherwise ZEDRO generates one and prints it once.
+
+```bash
+export ZEDRO_MODE=raycom
+export ZEDRO_RAYCOM_PASSWORD='choose-a-strong-password'
+python app.py
+```
+
+Confirm the exact Raycom storefront address and contact number with the business before presenting the pilot publicly.

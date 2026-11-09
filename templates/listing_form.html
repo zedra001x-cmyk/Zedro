@@ -6,7 +6,7 @@
 <h1>{{ 'Edit phone' if l else 'Add phone' }}</h1>
 <form class="stack" method="post" enctype="multipart/form-data">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>Brand *<input name="brand" list="brands" required maxlength="40" value="{{ val('brand') }}"></label>
+  <label>Brand *<input name="brand" list="brands" required maxlength="40" value="{{ val('brand') }}" autofocus></label>
   <datalist id="brands">{% for b in BRANDS %}<option value="{{ b }}">{% endfor %}</datalist>
   <label>Model *<input name="model" required maxlength="80" placeholder="iPhone 13" value="{{ val('model') }}"></label>
   <label>Price (₦) *<input name="price" required inputmode="numeric" placeholder="480000" value="{{ val('price') }}"></label>
@@ -15,7 +15,8 @@
       <option value="">Choose</option>
       {% for c in CONDITIONS %}<option {% if val('condition') == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
     </select></label>
-  <label>Storage<input name="storage" maxlength="20" placeholder="128GB" value="{{ val('storage') }}"></label>
+  <label>Storage<input name="storage" list="storages" maxlength="20" placeholder="128GB" value="{{ val('storage') }}"></label>
+  <datalist id="storages"><option value="64GB"><option value="128GB"><option value="256GB"><option value="512GB"><option value="1TB"></datalist>
   <label>Battery health (%)<input name="battery_health" inputmode="numeric" maxlength="3" value="{{ val('battery_health') }}"></label>
   <label>Repair history<input name="repair_history" maxlength="300" placeholder="e.g. Screen replaced" value="{{ val('repair_history') }}"></label>
   <label>Description<textarea name="description" rows="3" maxlength="1000">{{ val('description') }}</textarea></label>

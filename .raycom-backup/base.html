@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0E5A43">
+<title>{% block title %}ZEDRO · See it before you go{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% if demo %}<div class="demo">Demonstration inventory. Not confirmed by any store.</div>{% endif %}
+<header class="top">
+  <div class="bar">
+    <a class="logo" href="{{ url_for('home') }}">ZEDRO</a>
+    <nav>
+      {% if g.user %}
+        <a href="{{ url_for('admin_home' if g.user.role == 'admin' else 'dashboard') }}">{{ 'Admin' if g.user.role == 'admin' else 'Inventory' }}</a>
+        <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link">Log out</button></form>
+      {% else %}
+        <a href="{{ url_for('login') }}">Seller login</a>
+      {% endif %}
+    </nav>
+  </div>
+  {% block searchbar %}
+  <form class="miniSearch" action="{{ url_for('search') }}" method="get" role="search">
+    <input type="search" name="q" value="{{ q or '' }}" placeholder="Search iPhone, Samsung, Tecno..." aria-label="Search phones" maxlength="80">
+    <button>Search</button>
+  </form>
+  {% endblock %}
+</header>
+<main>
+  {% for m in get_flashed_messages() %}<p class="flash" role="status">{{ m }}</p>{% endfor %}
+  {% block content %}{% endblock %}
+</main>
+<footer>ZEDRO is a validation prototype. Listings come from seller updates, not live stock. Confirm with the store before you go.</footer>
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>

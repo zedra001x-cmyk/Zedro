@@ -61,6 +61,46 @@ def init_db(conn):
     conn.commit()
 
 
+def seed_raycom(conn, password=None):
+    """Seed one real-store pilot tenant for Raycom, with no invented inventory."""
+    conn.execute("BEGIN IMMEDIATE")
+    if conn.execute("SELECT COUNT(*) FROM store").fetchone()[0]:
+        conn.commit()
+        return []
+
+    now = now_utc()
+    seller_pw = password or secrets.token_urlsafe(10)
+    cur = conn.execute(
+        "INSERT INTO store (name, description, address, phone, whatsapp, created_at, approved)"
+        " VALUES (?, ?, ?, ?, ?, ?, 1)",
+        (
+            "Raycom Raymond",
+            "Mobile devices, laptops, accessories and electronics in Ughelli.",
+            "45 Isoko Road, Ughelli North, Delta State",
+            "08033927919",
+            "2348033927919",
+            ts(now),
+        ),
+    )
+    store_id = cur.lastrowid
+    conn.execute(
+        "INSERT INTO user (email, password_hash, role, store_id, created_at)"
+        " VALUES (?, ?, 'seller', ?, ?)",
+        ("raycom@zedro.local", generate_password_hash(seller_pw), store_id, ts(now)),
+    )
+    admin_pw = password or secrets.token_urlsafe(10)
+    conn.execute(
+        "INSERT INTO user (email, password_hash, role, store_id, created_at)"
+        " VALUES (?, ?, 'admin', NULL, ?)",
+        ("admin@zedro.local", generate_password_hash(admin_pw), ts(now)),
+    )
+    conn.commit()
+    return [
+        ("raycom@zedro.local", "seller", seller_pw),
+        ("admin@zedro.local", "admin", admin_pw),
+    ]
+
+
 # Clearly fictional demo stores. Swap names here if a dealer agrees to be shown.
 STORES = [
     ("Demo Mobile Point", "Demonstration store. Not a real business.", "08000000001", "2348000000001"),

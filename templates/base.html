@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0E5A43">
-<title>{% block title %}ZEDRO · See it before you go{% endblock %}</title>
+<title>{% block title %}{{ 'ZEDRO · Raycom' if raycom_pilot else 'ZEDRO · See it before you go' }}{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -32,7 +32,7 @@
   {% for m in get_flashed_messages() %}<p class="flash" role="status">{{ m }}</p>{% endfor %}
   {% block content %}{% endblock %}
 </main>
-<footer>ZEDRO is a validation prototype. Listings come from seller updates, not live stock. Confirm with the store before you go.</footer>
+<footer>{% if raycom_pilot %}Raycom inventory is updated by the store. It is not live stock; confirm availability before you go.{% else %}ZEDRO is a validation prototype. Listings come from seller updates, not live stock. Confirm with the store before you go.{% endif %}</footer>
 <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </body>
 </html>

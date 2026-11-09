@@ -206,7 +206,7 @@ def remove_image(name):
 
 
 # ---------- app ----------
-def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True):
+def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True, seed_mode=None):
     app = Flask(__name__, instance_relative_config=True)
     os.makedirs(app.instance_path, exist_ok=True)
     app.config.update(
@@ -215,14 +215,20 @@ def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True):
         MAX_CONTENT_LENGTH=4 * 1024 * 1024,
         SESSION_COOKIE_SAMESITE="Lax",
         DEMO=demo and os.environ.get("ZEDRO_DEMO", "1") != "0",
+        MODE=seed_mode or os.environ.get("ZEDRO_MODE", "demo"),
     )
     app.secret_key = load_secret(app)
     conn = sqlite3.connect(app.config["DATABASE"])
     dbm.init_db(conn)
     if seed_demo:
-        created = dbm.seed(conn)
+        if app.config["MODE"] == "raycom":
+            created = dbm.seed_raycom(conn, password=os.environ.get("ZEDRO_RAYCOM_PASSWORD"))
+            label = "Raycom pilot logins"
+        else:
+            created = dbm.seed(conn)
+            label = "Demo logins"
         if created:
-            print("\nDemo logins (shown once; run `python db.py --reset` to regenerate):")
+            print(f"\n{label} (shown once):")
             for email, role, pw in created:
                 print(f"  {role:7} {email}  {pw}")
             print()
@@ -253,12 +259,24 @@ def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True):
 
     @app.context_processor
     def inject():
-        return {"demo": app.config["DEMO"]}
+        return {
+            "demo": app.config["DEMO"],
+            "raycom_pilot": app.config["MODE"] == "raycom",
+        }
 
     @app.after_request
     def headers(resp):
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        resp.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://wa.me https://www.google.com;"
+        )
+        if request.is_secure or current_app.config.get("SESSION_COOKIE_SECURE"):
+            resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return resp
 
     @app.errorhandler(400)
@@ -272,7 +290,12 @@ def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True):
     @app.route("/")
     def home():
         popular = ["iPhone 13", "iPhone 12", "Samsung S23", "Samsung A55", "Tecno Camon", "Redmi Note"]
-        return render_template("home.html", popular=popular)
+        pilot_store = None
+        if app.config["MODE"] == "raycom":
+            pilot_store = get_db().execute(
+                "SELECT * FROM store WHERE name = ? AND approved = 1", ("Raycom Raymond",)
+            ).fetchone()
+        return render_template("home.html", popular=popular, pilot_store=pilot_store)
 
     @app.route("/search")
     def search():
