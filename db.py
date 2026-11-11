@@ -1,6 +1,7 @@
 """ZEDRO database schema and demo data (stdlib sqlite3)."""
 import random
 import secrets
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from werkzeug.security import generate_password_hash
@@ -24,7 +25,9 @@ CREATE TABLE IF NOT EXISTS user (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('seller', 'admin')),
     store_id INTEGER REFERENCES store(id),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    must_change_password INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS listing (
     id INTEGER PRIMARY KEY,
@@ -45,7 +48,27 @@ CREATE TABLE IF NOT EXISTS listing (
 );
 CREATE INDEX IF NOT EXISTS idx_listing_store ON listing(store_id);
 CREATE INDEX IF NOT EXISTS idx_listing_updated ON listing(updated_at);
+CREATE TABLE IF NOT EXISTS rate_limit_attempt (
+    id INTEGER PRIMARY KEY,
+    bucket TEXT NOT NULL,
+    key TEXT NOT NULL,
+    at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rl_lookup ON rate_limit_attempt(bucket, key, at);
+CREATE INDEX IF NOT EXISTS idx_rl_at ON rate_limit_attempt(at);
 """
+
+RAYCOM_STORE = "Raycom Raymond"
+
+# Columns added to `user` after the first release. Existing databases get them
+# through ALTER TABLE; the table is never dropped or rebuilt.
+USER_MIGRATIONS = (
+    ("active", "INTEGER NOT NULL DEFAULT 1"),
+    ("must_change_password", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+# Rows older than the longest limiter window can never matter again.
+RL_PRUNE_AFTER = 3600
 
 
 def now_utc():
@@ -58,11 +81,80 @@ def ts(dt=None):
 
 def init_db(conn):
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(user)")}
+    for name, ddl in USER_MIGRATIONS:
+        if name in have:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE user ADD COLUMN {name} {ddl}")
+        except sqlite3.OperationalError as e:
+            # Another worker added it between our check and our ALTER.
+            if "duplicate column" not in str(e).lower():
+                raise
     conn.commit()
 
 
-def seed_raycom(conn, password=None):
-    """Seed one real-store pilot tenant for Raycom, with no invented inventory."""
+def raycom_store_ids(conn):
+    return [r[0] for r in conn.execute("SELECT id FROM store WHERE name = ?", (RAYCOM_STORE,))]
+
+
+def raycom_db_state(conn):
+    """Classify a database for Raycom mode (read-only).
+
+    'empty'  - no stores yet; seed_raycom will create the pilot store.
+    'ready'  - exactly one Raycom store exists.
+    'foreign' - stores exist but none is Raycom (e.g. a demo database).
+    'ambiguous' - more than one Raycom store.
+    """
+    if not conn.execute("SELECT COUNT(*) FROM store").fetchone()[0]:
+        return "empty"
+    n = len(raycom_store_ids(conn))
+    return "ready" if n == 1 else ("foreign" if n == 0 else "ambiguous")
+
+
+def rl_reserve(conn, specs, now):
+    """Atomically prune, check and record one attempt against several limits.
+
+    specs: [(bucket, key, limit, window_seconds), ...]. Returns True and records
+    the attempt in every bucket when all are under their limit, else records
+    nothing and returns False. BEGIN IMMEDIATE serialises concurrent workers,
+    so two requests cannot both slip under the limit.
+    """
+    now = int(now)
+    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("DELETE FROM rate_limit_attempt WHERE at <= ?", (now - RL_PRUNE_AFTER,))
+        for bucket, key, limit, window in specs:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM rate_limit_attempt WHERE bucket = ? AND key = ? AND at > ?",
+                (bucket, key, now - window)).fetchone()[0]
+            if n >= limit:
+                conn.commit()
+                return False
+        for bucket, key, _limit, _window in specs:
+            conn.execute("INSERT INTO rate_limit_attempt (bucket, key, at) VALUES (?, ?, ?)",
+                         (bucket, key, now))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def rl_clear(conn, pairs):
+    """Forget recorded attempts for [(bucket, key), ...] (used after a successful login)."""
+    for bucket, key in pairs:
+        conn.execute("DELETE FROM rate_limit_attempt WHERE bucket = ? AND key = ?", (bucket, key))
+    conn.commit()
+
+
+def seed_raycom(conn, password=None, admin_password=None):
+    """Seed one real-store pilot tenant for Raycom, with no invented inventory.
+
+    The admin uses admin_password when given, else falls back to `password`
+    (the old shared behaviour), else a random password printed once.
+    """
     conn.execute("BEGIN IMMEDIATE")
     if conn.execute("SELECT COUNT(*) FROM store").fetchone()[0]:
         conn.commit()
@@ -74,7 +166,7 @@ def seed_raycom(conn, password=None):
         "INSERT INTO store (name, description, address, phone, whatsapp, created_at, approved)"
         " VALUES (?, ?, ?, ?, ?, ?, 1)",
         (
-            "Raycom Raymond",
+            RAYCOM_STORE,
             "Mobile devices, laptops, accessories and electronics in Ughelli.",
             "45 Isoko Road, Ughelli North, Delta State",
             "08033927919",
@@ -88,7 +180,7 @@ def seed_raycom(conn, password=None):
         " VALUES (?, ?, 'seller', ?, ?)",
         ("raycom@zedro.local", generate_password_hash(seller_pw), store_id, ts(now)),
     )
-    admin_pw = password or secrets.token_urlsafe(10)
+    admin_pw = admin_password or password or secrets.token_urlsafe(10)
     conn.execute(
         "INSERT INTO user (email, password_hash, role, store_id, created_at)"
         " VALUES (?, ?, 'admin', NULL, ?)",

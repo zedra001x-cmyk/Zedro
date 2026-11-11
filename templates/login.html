@@ -9,4 +9,5 @@
   <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
   <button class="btn primary big">Log in</button>
 </form>
+{% if raycom_pilot %}<p class="fine">Raycom staff with an invitation code: <a href="{{ url_for('seller_register') }}">create your account</a>.</p>{% endif %}
 {% endblock %}

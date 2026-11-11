@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block searchbar %}{% endblock %}
+{% block title %}Account · ZEDRO{% endblock %}
+{% block content %}
+<h1>Account</h1>
+{% if g.user.must_change_password %}<p class="flash" role="alert">Your password was reset by an administrator. Choose a new password to continue.</p>{% endif %}
+<div class="row">
+  <p class="spec">Email: <b>{{ g.user.email }}</b></p>
+  <p class="spec">Role: {{ g.user.role }}{% if store %} · {{ store.name }}{% endif %}</p>
+</div>
+<h2 class="sub">Change password</h2>
+<form class="stack" method="post" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Current password<input type="password" name="current_password" required autocomplete="current-password"></label>
+  <label>New password (at least 10 characters)<input type="password" name="new_password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
+  <label>Confirm new password<input type="password" name="confirm_password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
+  <button class="btn primary big">Change password</button>
+</form>
+<p class="fine">After changing your password you will be logged out on every device and asked to log in again.</p>
+{% endblock %}

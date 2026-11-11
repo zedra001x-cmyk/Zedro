@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block searchbar %}{% endblock %}
+{% block title %}Temporary password · ZEDRO{% endblock %}
+{% block content %}
+<h1>Temporary password</h1>
+<div class="row">
+  <p class="spec">Account: <b>{{ target.email }}</b></p>
+  <p class="price" style="word-break:break-all">{{ temp }}</p>
+  <p class="spec">This is shown once. Copy it now and give it to the staff member privately. They must change it the first time they log in. Do not refresh this page: that would create a different password.</p>
+  {% if still_disabled %}<p class="spec"><b>This account is still disabled.</b> Enable it from the accounts page before they can log in.</p>{% endif %}
+</div>
+<a class="btn primary big" href="{{ url_for('admin_accounts') }}">Done</a>
+{% endblock %}

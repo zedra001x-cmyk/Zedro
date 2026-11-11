@@ -1,15 +1,18 @@
 """ZEDRO validation prototype: Flask + stdlib sqlite3."""
+import hashlib
 import hmac
 import os
 import re
 import secrets
 import sqlite3
+import time
 import urllib.parse
 from datetime import timedelta
 from functools import wraps
 
 from flask import (Flask, abort, current_app, flash, g, redirect, render_template,
                    request, send_from_directory, session, url_for)
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db as dbm
@@ -18,6 +21,13 @@ from db import FMT, now_utc, ts
 CONDITIONS = ["New", "Fairly Used", "Used"]
 BRANDS = ["Apple", "Samsung", "Tecno", "Infinix", "Xiaomi", "Google", "Itel", "Oppo", "Nokia", "Other"]
 DUMMY_HASH = generate_password_hash("not-a-real-password")
+MIN_PASSWORD = 10
+MAX_PASSWORD = 128
+EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+# Limiter settings: (max attempts, window in seconds).
+LOGIN_IP_EMAIL = (5, 900)      # failed logins per client IP + email
+LOGIN_EMAIL = (30, 3600)       # failed logins per email across all IPs
+REGISTER_IP = (10, 3600)       # registration attempts per client IP
 LISTING_SELECT = (
     "SELECT l.*, s.name AS store_name, s.whatsapp AS whatsapp, s.phone AS store_phone"
     " FROM listing l JOIN store s ON s.id = l.store_id"
@@ -101,10 +111,44 @@ def sniff_image(data):
     return None
 
 
-def load_secret(app):
-    env = os.environ.get("ZEDRO_SECRET")
+def norm_email(raw):
+    return (raw or "").strip().lower()[:254]
+
+
+def limiter_key(*parts):
+    """Hash the parts so stored keys are fixed-size whatever the client sends."""
+    return hashlib.sha256("\x1f".join(parts).encode()).hexdigest()
+
+
+def pw_fingerprint(secret, password_hash):
+    """HMAC of the stored hash: changes whenever the password changes, reveals nothing."""
+    key = secret.encode() if isinstance(secret, str) else secret
+    return hmac.new(key, b"zedro-pw-fp:" + password_hash.encode(), hashlib.sha256).hexdigest()
+
+
+def disable_block_reason(d, actor_id, target):
+    """Why `target` may not be disabled by `actor_id`, or None if it may.
+
+    Keeps the invariant that at least one active admin always remains. Only
+    active admins are counted, so a disabled admin never props the count up.
+    """
+    if target["id"] == actor_id:
+        return "You cannot disable your own account."
+    if target["role"] == "admin" and target["active"] == 1:
+        n = d.execute("SELECT COUNT(*) FROM user WHERE role = 'admin' AND active = 1").fetchone()[0]
+        if n <= 1:
+            return "That is the last active admin. Create or enable another admin first."
+    return None
+
+
+def load_secret(app, mode="demo"):
+    env = (os.environ.get("ZEDRO_SECRET_KEY") or os.environ.get("ZEDRO_SECRET") or "").strip()
     if env:
         return env
+    if mode == "raycom":
+        raise RuntimeError(
+            "ZEDRO_SECRET_KEY must be set when ZEDRO_MODE=raycom. A generated key would not "
+            "survive restarts or be shared between workers.")
     path = os.path.join(app.instance_path, "secret_key")
     if not os.path.exists(path):
         with open(path, "w") as f:
@@ -206,23 +250,44 @@ def remove_image(name):
 
 
 # ---------- app ----------
-def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True, seed_mode=None):
+def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True, seed_mode=None, trust_proxy=None):
     app = Flask(__name__, instance_relative_config=True)
     os.makedirs(app.instance_path, exist_ok=True)
     app.config.update(
-        DATABASE=db_path or os.path.join(app.instance_path, "zedro.db"),
-        UPLOAD_DIR=upload_dir or os.path.join(app.instance_path, "uploads"),
+        DATABASE=db_path or os.environ.get("ZEDRO_DATABASE") or os.path.join(app.instance_path, "zedro.db"),
+        UPLOAD_DIR=upload_dir or os.environ.get("ZEDRO_UPLOAD_DIR") or os.path.join(app.instance_path, "uploads"),
         MAX_CONTENT_LENGTH=4 * 1024 * 1024,
         SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SECURE=os.environ.get("ZEDRO_SESSION_SECURE") == "1",
+        TRUST_PROXY=(os.environ.get("ZEDRO_TRUST_PROXY") == "1") if trust_proxy is None else bool(trust_proxy),
+        CLOCK=time.time,
         DEMO=demo and os.environ.get("ZEDRO_DEMO", "1") != "0",
         MODE=seed_mode or os.environ.get("ZEDRO_MODE", "demo"),
     )
-    app.secret_key = load_secret(app)
+    app.secret_key = load_secret(app, app.config["MODE"])
+    if app.config["TRUST_PROXY"]:
+        # Trust exactly one proxy hop (Render's) for the client IP; nothing else.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
+    db_dir = os.path.dirname(os.path.abspath(app.config["DATABASE"]))
+    os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(app.config["DATABASE"])
     dbm.init_db(conn)
+    if app.config["MODE"] == "raycom":
+        state = dbm.raycom_db_state(conn)
+        if state in ("foreign", "ambiguous"):
+            conn.close()
+            raise RuntimeError(
+                "ZEDRO_MODE=raycom found a database that already has stores but "
+                + ("no" if state == "foreign" else "more than one")
+                + " 'Raycom Raymond' store (likely a demo database). Nothing was changed. "
+                "Point ZEDRO_DATABASE at a fresh file for the pilot.")
+        if state == "ready" and conn.execute("SELECT COUNT(*) FROM store").fetchone()[0] > 1:
+            print("WARNING: this database also contains stores other than Raycom Raymond.")
     if seed_demo:
         if app.config["MODE"] == "raycom":
-            created = dbm.seed_raycom(conn, password=os.environ.get("ZEDRO_RAYCOM_PASSWORD"))
+            created = dbm.seed_raycom(conn, password=os.environ.get("ZEDRO_RAYCOM_PASSWORD"),
+                                      admin_password=os.environ.get("ZEDRO_ADMIN_PASSWORD"))
             label = "Raycom pilot logins"
         else:
             created = dbm.seed(conn)
@@ -245,12 +310,40 @@ def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True, seed_mo
         if d is not None:
             d.close()
 
+    def client_ip():
+        return request.remote_addr or "unknown"
+
+    def now_ts():
+        return app.config["CLOCK"]()
+
+    def start_session(u):
+        session.clear()
+        session["uid"] = u["id"]
+        session["pwfp"] = pw_fingerprint(app.secret_key, u["password_hash"])
+
+    # Endpoints a user may reach while a password change is pending.
+    FORCED_CHANGE_OK = {"account", "logout", "static"}
+
     @app.before_request
     def load_user_and_check_csrf():
         g.user = None
+        g.session_rejected = False
         uid = session.get("uid")
         if uid:
-            g.user = get_db().execute("SELECT * FROM user WHERE id = ?", (uid,)).fetchone()
+            u = get_db().execute("SELECT * FROM user WHERE id = ?", (uid,)).fetchone()
+            # Validated on every request, not just at login: the account must still
+            # exist, be active, and the session must match the current password.
+            if (u is not None and u["active"] == 1
+                    and hmac.compare_digest(str(session.get("pwfp") or ""),
+                                            pw_fingerprint(app.secret_key, u["password_hash"]))):
+                g.user = u
+            else:
+                session.clear()
+                g.session_rejected = True
+        if g.user is not None and g.user["must_change_password"] and request.endpoint not in FORCED_CHANGE_OK:
+            return redirect(url_for("account"))
+        if g.session_rejected and request.method == "POST":
+            return redirect(url_for("login"))
         if request.method == "POST":
             sent = (request.form.get("csrf_token") or "").encode()
             have = (session.get("csrf") or "").encode()
@@ -374,13 +467,27 @@ def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True, seed_mo
         if g.user:
             return redirect(url_for("admin_home" if g.user["role"] == "admin" else "dashboard"))
         if request.method == "POST":
-            email = (request.form.get("email") or "").strip().lower()[:254]
+            d = get_db()
+            email = norm_email(request.form.get("email"))
             pw = request.form.get("password") or ""
-            u = get_db().execute("SELECT * FROM user WHERE email = ?", (email,)).fetchone()
+            k_pair = limiter_key("login", client_ip(), email)
+            k_email = limiter_key("login", email)
+            # Every attempt is recorded up front (inside one transaction, so workers
+            # cannot race), and forgotten again on success. Only failures remain.
+            allowed = dbm.rl_reserve(d, [
+                ("login_ip_email", k_pair, *LOGIN_IP_EMAIL),
+                ("login_email", k_email, *LOGIN_EMAIL),
+            ], now_ts())
+            if not allowed:
+                flash("Too many login attempts. Wait a few minutes and try again.")
+                return render_template("login.html"), 429
+            u = d.execute("SELECT * FROM user WHERE email = ?", (email,)).fetchone()
             ok = check_password_hash(u["password_hash"] if u else DUMMY_HASH, pw)
-            if u and ok:
-                session.clear()
-                session["uid"] = u["id"]
+            if u and ok and u["active"] == 1:
+                dbm.rl_clear(d, [("login_ip_email", k_pair), ("login_email", k_email)])
+                start_session(u)
+                if u["must_change_password"]:
+                    return redirect(url_for("account"))
                 return redirect(url_for("admin_home" if u["role"] == "admin" else "dashboard"))
             flash("Email or password is incorrect.")
         return render_template("login.html")
@@ -389,6 +496,114 @@ def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True, seed_mo
     def logout():
         session.clear()
         return redirect(url_for("home"))
+
+    # ----- account (any signed-in user) -----
+    def require_login(fn):
+        @wraps(fn)
+        def wrapper(*a, **kw):
+            if g.user is None:
+                return redirect(url_for("login"))
+            return fn(*a, **kw)
+        return wrapper
+
+    def password_errors(new, confirm):
+        errors = []
+        if len(new) < MIN_PASSWORD:
+            errors.append(f"New password must be at least {MIN_PASSWORD} characters.")
+        if len(new) > MAX_PASSWORD:
+            errors.append(f"New password must be {MAX_PASSWORD} characters or fewer.")
+        if new != confirm:
+            errors.append("The two new passwords do not match.")
+        return errors
+
+    @app.route("/account", methods=["GET", "POST"])
+    @require_login
+    def account():
+        d = get_db()
+        store_row = None
+        if g.user["store_id"]:
+            store_row = d.execute("SELECT name FROM store WHERE id = ?", (g.user["store_id"],)).fetchone()
+        if request.method == "POST":
+            current = request.form.get("current_password") or ""
+            new = request.form.get("new_password") or ""
+            confirm = request.form.get("confirm_password") or ""
+            errors = []
+            if not check_password_hash(g.user["password_hash"], current):
+                errors.append("Current password is incorrect.")
+            errors += password_errors(new, confirm)
+            if not errors and hmac.compare_digest(new.encode(), current.encode()):
+                errors.append("Choose a new password that is different from the current one.")
+            if errors:
+                for e in errors:
+                    flash(e)
+                return render_template("account.html", store=store_row), 400
+            d.execute("UPDATE user SET password_hash = ?, must_change_password = 0 WHERE id = ?",
+                      (generate_password_hash(new), g.user["id"]))
+            d.commit()
+            # The hash changed, so every session for this user (other devices too)
+            # now fails the fingerprint check. Clear this one and ask for a fresh login.
+            session.clear()
+            flash("Password changed. Log in with your new password.")
+            return redirect(url_for("login"))
+        return render_template("account.html", store=store_row)
+
+    # ----- seller self-registration (Raycom pilot only) -----
+    if app.config["MODE"] == "raycom":
+        @app.route("/seller/register", methods=["GET", "POST"])
+        def seller_register():
+            if g.user:
+                return redirect(url_for("account"))
+            if request.method == "GET":
+                return render_template("register.html", form={})
+            d = get_db()
+            if not dbm.rl_reserve(d, [("register_ip", limiter_key("register", client_ip()), *REGISTER_IP)],
+                                  now_ts()):
+                flash("Too many attempts. Wait a while and try again.")
+                return render_template("register.html", form={}), 429
+            configured = os.environ.get("ZEDRO_SELLER_INVITE_CODE") or ""
+            if not configured:
+                # Never fall back to open registration.
+                flash("Registration is not available right now.")
+                return render_template("register.html", form={}), 403
+            supplied = request.form.get("invite_code") or ""
+            if not hmac.compare_digest(supplied.encode(), configured.encode()):
+                flash("That invitation code is not valid.")
+                return render_template("register.html", form={}), 403
+            email = norm_email(request.form.get("email"))
+            pw = request.form.get("password") or ""
+            confirm = request.form.get("confirm_password") or ""
+            errors = []
+            if not EMAIL_RE.fullmatch(email):
+                errors.append("Enter a valid email address.")
+            if len(pw) < MIN_PASSWORD:
+                errors.append(f"Password must be at least {MIN_PASSWORD} characters.")
+            if len(pw) > MAX_PASSWORD:
+                errors.append(f"Password must be {MAX_PASSWORD} characters or fewer.")
+            if pw != confirm:
+                errors.append("The two passwords do not match.")
+            if not errors and d.execute("SELECT 1 FROM user WHERE email = ?", (email,)).fetchone():
+                errors.append("An account with that email already exists.")
+            ids = dbm.raycom_store_ids(d)
+            if len(ids) != 1:
+                flash("Registration is not available right now.")
+                return render_template("register.html", form={}), 503
+            if errors:
+                for e in errors:
+                    flash(e)
+                return render_template("register.html", form={"email": email}), 400
+            # Role and store are fixed here; nothing in the form can change them.
+            try:
+                d.execute(
+                    "INSERT INTO user (email, password_hash, role, store_id, created_at)"
+                    " VALUES (?, ?, 'seller', ?, ?)",
+                    (email, generate_password_hash(pw), ids[0], ts()))
+                d.commit()
+            except sqlite3.IntegrityError:
+                d.rollback()
+                flash("An account with that email already exists.")
+                return render_template("register.html", form={"email": email}), 400
+            flash("Account created. You can log in now.")
+            return redirect(url_for("login"))
 
     # ----- seller -----
     def own_listing(id):
@@ -520,6 +735,73 @@ def create_app(db_path=None, upload_dir=None, demo=True, seed_demo=True, seed_mo
     @require_role("admin")
     def admin_reject(id):
         return moderate(id, 0)
+
+    # ----- admin: account management -----
+    def target_user(d, id):
+        u = d.execute("SELECT * FROM user WHERE id = ?", (id,)).fetchone()
+        if u is None:
+            abort(404)
+        return u
+
+    @app.route("/admin/accounts")
+    @require_role("admin")
+    def admin_accounts():
+        users = get_db().execute(
+            "SELECT u.id, u.email, u.role, u.active, u.must_change_password, u.created_at,"
+            " s.name AS store_name FROM user u LEFT JOIN store s ON s.id = u.store_id"
+            " ORDER BY u.role, u.email").fetchall()
+        return render_template("admin_accounts.html", users=users)
+
+    @app.route("/admin/accounts/<int:id>/disable", methods=["POST"])
+    @require_role("admin")
+    def admin_disable(id):
+        d = get_db()
+        d.commit()
+        d.execute("BEGIN IMMEDIATE")  # count and update under one lock
+        try:
+            u = target_user(d, id)
+            reason = disable_block_reason(d, g.user["id"], u)
+            if reason:
+                d.rollback()
+                flash(reason)
+            else:
+                d.execute("UPDATE user SET active = 0 WHERE id = ?", (id,))
+                d.commit()
+                flash(f"Disabled {u['email']}. Their sessions stop on their next request.")
+        except Exception:
+            d.rollback()
+            raise
+        return redirect(url_for("admin_accounts"))
+
+    @app.route("/admin/accounts/<int:id>/enable", methods=["POST"])
+    @require_role("admin")
+    def admin_enable(id):
+        d = get_db()
+        u = target_user(d, id)
+        d.execute("UPDATE user SET active = 1 WHERE id = ?", (id,))
+        d.commit()
+        flash(f"Enabled {u['email']}.")
+        return redirect(url_for("admin_accounts"))
+
+    @app.route("/admin/accounts/<int:id>/reset-password", methods=["POST"])
+    @require_role("admin")
+    def admin_reset_password(id):
+        d = get_db()
+        u = target_user(d, id)
+        if u["id"] == g.user["id"]:
+            flash("Use the Account page to change your own password.")
+            return redirect(url_for("admin_accounts"))
+        temp = secrets.token_urlsafe(12)
+        # Only the hash is stored. `active` is deliberately left as it was, so
+        # resetting a disabled account does not re-enable it.
+        d.execute("UPDATE user SET password_hash = ?, must_change_password = 1 WHERE id = ?",
+                  (generate_password_hash(temp), id))
+        d.commit()
+        # Shown only in this response: never in a redirect, flash, URL or log.
+        resp = app.make_response(render_template("account_reset.html", target=u, temp=temp,
+                                                 still_disabled=(u["active"] != 1)))
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     return app
 

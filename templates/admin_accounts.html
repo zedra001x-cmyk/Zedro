@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block searchbar %}{% endblock %}
+{% block title %}Accounts · ZEDRO{% endblock %}
+{% block content %}
+<h1>Accounts</h1>
+<p class="fine"><a href="{{ url_for('admin_home') }}">Back to admin</a></p>
+{% for u in users %}
+<div class="row">
+  <div class="rowtop"><div>
+    <h3>{{ u.email }}</h3>
+    <p class="spec">{{ u.role }}{% if u.store_name %} · {{ u.store_name }}{% endif %} · created {{ u.created_at }}</p>
+  </div>
+  <p><span class="badge {{ 'fresh' if u.active else 'stale' }}">{{ 'Active' if u.active else 'Disabled' }}</span></p></div>
+  {% if u.must_change_password %}<p class="spec">Must change password at next login</p>{% endif %}
+  {% if u.id != g.user.id %}
+  <div class="actions">
+    {% if u.active %}
+    <form method="post" action="{{ url_for('admin_disable', id=u.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn danger">Disable</button></form>
+    {% else %}
+    <form method="post" action="{{ url_for('admin_enable', id=u.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn">Enable</button></form>
+    {% endif %}
+    <form method="post" action="{{ url_for('admin_reset_password', id=u.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn">Reset password</button></form>
+  </div>
+  {% else %}
+  <p class="spec">This is you. Change your own password on the <a href="{{ url_for('account') }}">Account</a> page.</p>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

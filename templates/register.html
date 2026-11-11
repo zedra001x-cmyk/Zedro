@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block searchbar %}{% endblock %}
+{% block title %}Create staff account · ZEDRO{% endblock %}
+{% block content %}
+<h1>Create staff account</h1>
+<p class="fine">For Raycom Raymond staff. You need the invitation code from the store owner.</p>
+<form class="stack" method="post" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Email<input type="email" name="email" required maxlength="254" value="{{ form.get('email', '') }}" autocomplete="username"></label>
+  <label>Password (at least 10 characters)<input type="password" name="password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
+  <label>Confirm password<input type="password" name="confirm_password" required minlength="10" maxlength="128" autocomplete="new-password"></label>
+  <label>Invitation code<input type="password" name="invite_code" required maxlength="200" autocomplete="off"></label>
+  <button class="btn primary big">Create account</button>
+</form>
+<p class="fine"><a href="{{ url_for('login') }}">Back to login</a></p>
+{% endblock %}
